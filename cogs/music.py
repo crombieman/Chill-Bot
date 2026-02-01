@@ -1,6 +1,7 @@
 import asyncio
 import random
 import re
+from collections import defaultdict
 
 import aiohttp
 import discord
@@ -38,6 +39,7 @@ class Music(commands.Cog):
         self.now_playing: dict[int, dict | None] = {} # guild_id -> current song dict
         self.volumes: dict[int, float] = {}           # guild_id -> volume (0.0–1.0)
         self.loop_mode: dict[int, str] = {}           # guild_id -> "off" | "track" | "queue"
+        self.text_channels: dict[int, discord.abc.Messageable] = {}  # guild_id -> text channel
 
     # ── helpers ──────────────────────────────────────────────
 
@@ -94,7 +96,7 @@ class Music(commands.Cog):
         """Check if a query looks like a playlist URL."""
         if "list=" in query:
             return True
-        if "soundcloud.com" in query and "/sets/" in query:
+        if "soundcloud.com" in query and any(p in query for p in ["/sets/", "/likes", "/tracks", "/reposts", "/albums"]):
             return True
         if "bandcamp.com" in query and "/album/" in query:
             return True
@@ -120,6 +122,7 @@ class Music(commands.Cog):
             "url": data["url"],                       # direct audio stream URL
             "webpage_url": data.get("webpage_url", query),
             "duration": data.get("duration", 0),
+            "is_preview": "preview" in (data.get("format_id") or ""),
         }
 
     def _play_next(self, guild: discord.Guild):
@@ -152,14 +155,36 @@ class Music(commands.Cog):
                 resolved = await self._extract_info(song.get("webpage_url") or song["url"])
                 song.update(resolved)
             except Exception:
-                # Skip unresolvable tracks
+                # Notify and skip unresolvable tracks
+                text_ch = self.text_channels.get(guild.id)
+                if text_ch:
+                    await text_ch.send(f"Skipping **{song['title']}** (unavailable or restricted).")
                 await self._play_next_async(guild)
                 return
+
+        # Skip Go+ preview tracks
+        if song.get("is_preview"):
+            text_ch = self.text_channels.get(guild.id)
+            if text_ch:
+                await text_ch.send(f"Skipping **{song['title']}** (Go+ preview).")
+            await self._play_next_async(guild)
+            return
+
+        if not guild.voice_client:
+            self.now_playing[guild.id] = None
+            return
 
         self.now_playing[guild.id] = song
         source = discord.FFmpegPCMAudio(song["url"], before_options=FFMPEG_BEFORE_OPTS, options=FFMPEG_OPTS)
         source = discord.PCMVolumeTransformer(source, volume=self.volumes.get(guild.id, 0.5))
         guild.voice_client.play(source, after=lambda e: self._play_next(guild) if not e else print(f"Player error: {e}"))
+
+        # Notify the text channel
+        text_ch = self.text_channels.get(guild.id)
+        if text_ch:
+            await text_ch.send(
+                f"Now playing: **{song['title']}** [{self._format_duration(song['duration'])}]"
+            )
 
     @staticmethod
     def _format_duration(seconds: int | float) -> str:
@@ -178,6 +203,7 @@ class Music(commands.Cog):
         if not ctx.author.voice:
             return await ctx.send("You need to be in a voice channel.")
 
+        self.text_channels[ctx.guild.id] = ctx.channel
         channel = ctx.author.voice.channel
 
         # Connect if not already in voice
@@ -202,22 +228,9 @@ class Music(commands.Cog):
                 await ctx.send(f"Added **{len(entries)}** tracks from playlist to the queue.")
 
                 # Start playing if nothing is currently playing
-                if not ctx.voice_client.is_playing() and not ctx.voice_client.is_paused():
-                    song = queue.pop(0)
-                    self.now_playing[ctx.guild.id] = song
-                    # Resolve the full stream URL for flat-extracted entries
-                    try:
-                        resolved = await self._extract_info(song["url"])
-                        song.update(resolved)
-                    except Exception:
-                        pass
-                    source = discord.FFmpegPCMAudio(song["url"], before_options=FFMPEG_BEFORE_OPTS, options=FFMPEG_OPTS)
-                    source = discord.PCMVolumeTransformer(source, volume=self.volumes.get(ctx.guild.id, 0.5))
-                    ctx.voice_client.play(source, after=lambda e: self._play_next(ctx.guild) if not e else print(f"Player error: {e}"))
-                    await ctx.send(
-                        f"Now playing: **{song['title']}** "
-                        f"[{self._format_duration(song['duration'])}]"
-                    )
+                if ctx.voice_client and not ctx.voice_client.is_playing() and not ctx.voice_client.is_paused():
+                    # Use the normal playback chain which handles Go+ skipping
+                    await self._play_next_async(ctx.guild)
                 return
 
             # Single track
@@ -225,6 +238,9 @@ class Music(commands.Cog):
                 song = await self._extract_info(query)
             except Exception as e:
                 return await ctx.send(f"Failed to extract audio: {e}")
+
+            if song.get("is_preview"):
+                return await ctx.send(f"**{song['title']}** is a Go+ track and can't be played.")
 
             queue = self._get_queue(ctx.guild.id)
 
@@ -262,7 +278,7 @@ class Music(commands.Cog):
         else:
             await ctx.send("Nothing is paused.")
 
-    @commands.command()
+    @commands.command(aliases=["next"])
     async def skip(self, ctx: commands.Context):
         """Skip the current track."""
         if ctx.voice_client and ctx.voice_client.is_playing():
@@ -299,10 +315,15 @@ class Music(commands.Cog):
                 f"[{self._format_duration(current['duration'])}]"
             )
 
+        shown = 0
         for i, song in enumerate(queue, start=1):
-            lines.append(
-                f"`{i}.` {song['title']} [{self._format_duration(song['duration'])}]"
-            )
+            line = f"`{i}.` {song['title']} [{self._format_duration(song['duration'])}]"
+            # Keep total message under Discord's 2000 char limit
+            if len("\n".join(lines + [line])) > 1900:
+                lines.append(f"*...and {len(queue) - shown} more songs.*")
+                break
+            lines.append(line)
+            shown += 1
 
         if not queue and current:
             lines.append("*No more songs in queue.*")
@@ -337,13 +358,62 @@ class Music(commands.Cog):
             ctx.voice_client.source.volume = level / 100
         await ctx.send(f"Volume set to **{level}%**.")
 
+    @staticmethod
+    def _smart_shuffle(queue: list[dict]) -> None:
+        """Shuffle queue while spacing out tracks from the same artist/uploader."""
+        if len(queue) < 2:
+            return
+
+        def get_artist(song: dict) -> str:
+            title = song.get("title", "")
+            # Most YouTube/SoundCloud titles use "Artist - Title" format
+            if " - " in title:
+                return title.split(" - ", 1)[0].strip().lower()
+            return title.strip().lower()
+
+        # Group tracks by artist
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for song in queue:
+            groups[get_artist(song)].append(song)
+
+        # Shuffle within each artist group for randomness
+        for tracks in groups.values():
+            random.shuffle(tracks)
+
+        # Sort groups largest-first so the most common artists get placed first
+        # (they need the most precise spacing)
+        sorted_groups = sorted(groups.values(), key=len, reverse=True)
+
+        total = len(queue)
+        result: list[dict | None] = [None] * total
+        taken = [False] * total
+
+        for group in sorted_groups:
+            count = len(group)
+            spacing = total / count
+            # Random offset within the first interval so the pattern isn't predictable
+            offset = random.random() * spacing
+
+            for i, track in enumerate(group):
+                ideal = int(round(offset + i * spacing)) % total
+                # Find the nearest free slot to the ideal position
+                for delta in range(total):
+                    pos = (ideal + delta) % total
+                    if not taken[pos]:
+                        result[pos] = track
+                        taken[pos] = True
+                        break
+
+        queue.clear()
+        queue.extend(result)
+
     @commands.command()
     async def shuffle(self, ctx: commands.Context):
-        """Shuffle the current queue."""
+        """Smart-shuffle the queue, spacing out tracks from the same artist."""
         queue = self._get_queue(ctx.guild.id)
         if len(queue) < 2:
             return await ctx.send("Not enough songs in the queue to shuffle.")
-        random.shuffle(queue)
+        self._smart_shuffle(queue)
         await ctx.send(f"Shuffled **{len(queue)}** songs.")
 
     @commands.command()
