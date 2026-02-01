@@ -19,6 +19,13 @@ async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
 
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    await ctx.send(f"Error: {error}")
+
+
 async def main():
     async with bot:
         await bot.load_extension("cogs.music")

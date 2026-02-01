@@ -207,7 +207,7 @@ class Music(commands.Cog):
 
         await ctx.send("\n".join(lines))
 
-    @commands.command()
+    @commands.command(aliases=["np"])
     async def nowplaying(self, ctx: commands.Context):
         """Show the currently playing track."""
         current = self.now_playing.get(ctx.guild.id)
