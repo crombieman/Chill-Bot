@@ -23,15 +23,21 @@ A Discord music bot that plays audio from YouTube and other sources.
 
 | Command | Description |
 |---------|-------------|
-| `!play <url or search>` | Play a URL or search YouTube. Queues if something is already playing. |
+| `!play <url or search>` | Play a URL or search YouTube. Supports playlists. Queues if something is already playing. |
 | `!pause` | Pause the current track. |
 | `!resume` | Resume playback. |
 | `!skip` | Skip to the next song in the queue. |
 | `!stop` | Stop playback, clear the queue, and disconnect. |
 | `!queue` | Show the current song queue. |
-| `!nowplaying` | Show info about the currently playing track. |
+| `!nowplaying` / `!np` | Show info about the currently playing track. |
+| `!volume <0-100>` / `!vol` | Set volume (0–100). Shows current volume if no value given. |
+| `!shuffle` | Shuffle the queue. |
+| `!loop [off\|track\|queue]` | Toggle loop mode. Cycles through off/track/queue if no arg given. |
+| `!seek <time>` | Seek to a position (e.g. `1:30` or `90`). |
+| `!lyrics [song]` | Fetch lyrics. Uses the current track if no song is given. |
+| `!clear` | Clear the queue without stopping the current song. |
 | `!remove <#>` | Remove a song from the queue by position. |
 
 ## Supported Sources
 
-Anything supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md), including YouTube, SoundCloud, Bandcamp, and more.
+Anything supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md), including YouTube, SoundCloud, Bandcamp, Spotify (track links), and more.
