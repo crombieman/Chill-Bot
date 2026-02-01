@@ -1,8 +1,14 @@
 import asyncio
+import re
 
+import aiohttp
 import discord
 from discord.ext import commands
 import yt_dlp
+
+SPOTIFY_REGEX = re.compile(
+    r"https?://open\.spotify\.com/(track|album|playlist)/([a-zA-Z0-9]+)"
+)
 
 YTDL_OPTIONS = {
     "format": "bestaudio/best",
@@ -29,8 +35,37 @@ class Music(commands.Cog):
     def _get_queue(self, guild_id: int) -> list[dict]:
         return self.queues.setdefault(guild_id, [])
 
+    async def _resolve_spotify(self, url: str) -> list[str]:
+        """Convert Spotify URLs to YouTube search queries via oEmbed."""
+        match = SPOTIFY_REGEX.match(url)
+        if not match:
+            return [url]
+
+        kind = match.group(1)
+
+        if kind == "track":
+            oembed_url = f"https://open.spotify.com/oembed?url={url}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(oembed_url) as resp:
+                    if resp.status != 200:
+                        raise commands.CommandError("Could not fetch Spotify track info.")
+                    data = await resp.json()
+            # oEmbed title is "track name - artist"
+            return [f"ytsearch:{data['title']}"]
+
+        # For albums/playlists, we'd need the full Spotify API.
+        raise commands.CommandError(
+            "Only Spotify track links are supported. "
+            "Album and playlist links require Spotify API credentials."
+        )
+
     async def _extract_info(self, query: str) -> dict:
         """Run yt-dlp extraction in a thread so we don't block the event loop."""
+        # Resolve Spotify URLs to a YouTube search query
+        if SPOTIFY_REGEX.match(query):
+            queries = await self._resolve_spotify(query)
+            query = queries[0]
+
         ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
         loop = asyncio.get_event_loop()
         data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
