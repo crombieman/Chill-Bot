@@ -44,6 +44,6 @@ Anything supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supp
 
 ## Extra Features
 
-1. Automatically skips Soundcloud Go+ songs
+Automatically skips Soundcloud Go+ songs
 
-2. No queue size cap
+No queue size cap
