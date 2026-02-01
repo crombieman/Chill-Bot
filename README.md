@@ -10,7 +10,7 @@ A Discord music bot that plays audio from YouTube and other sources.
    ```
    pip install -r requirements.txt
    ```
-4. Create a `.env` file and add your bot token to `.env`:
+4. Create a `.env` file, copy the following contents, and add your bot token to `your_token_here`:
    ```
    DISCORD_TOKEN=your_token_here
    ```
