@@ -43,4 +43,4 @@ A Discord music bot that plays audio from YouTube and other sources.
 Anything supported by [yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md), including YouTube, SoundCloud, Bandcamp, Spotify (track links), and more.
 
 ## Extra Features
-|Automatically skips Soundcloud Go+ songs|
+| Automatically skips Soundcloud Go+ songs |
