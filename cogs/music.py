@@ -11,7 +11,7 @@ SPOTIFY_REGEX = re.compile(
 )
 
 YTDL_OPTIONS = {
-    "format": "bestaudio/best",
+    "format": "bestaudio[acodec=opus]/bestaudio/best",
     "noplaylist": True,
     "quiet": True,
     "no_warnings": True,
@@ -20,7 +20,7 @@ YTDL_OPTIONS = {
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-    "options": "-vn",
+    "options": "-vn -b:a 256k",
 }
 
 
@@ -96,9 +96,10 @@ class Music(commands.Cog):
         guild.voice_client.play(source, after=lambda _: self._play_next(guild))
 
     @staticmethod
-    def _format_duration(seconds: int) -> str:
+    def _format_duration(seconds: int | float) -> str:
         if not seconds:
             return "Live / Unknown"
+        seconds = int(seconds)
         m, s = divmod(seconds, 60)
         h, m = divmod(m, 60)
         return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
